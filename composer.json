@@ -1,0 +1,65 @@
+{
+    "name": "kevjo/laravel-collab",
+    "description": "Real-time collaborative editing for Laravel with intelligent locking and conflict resolution.",
+    "keywords": [
+        "laravel",
+        "laravel12",
+        "php85",
+        "concurrent-editing",
+        "collaboration",
+        "locking",
+        "optimistic-locking",
+        "pessimistic-locking",
+        "real-time"
+    ],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "kevjo",
+            "email": "kevvjoo@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Kevjo\\LaravelCollab\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Kevjo\\LaravelCollab\\Tests\\": "tests/"
+        }
+    },
+    "require": {
+        "php": "^8.5",
+        "illuminate/support": "^12.0",
+        "illuminate/database": "^12.0",
+        "illuminate/events": "^12.0",
+        "illuminate/console": "^12.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0",
+        "phpunit/phpunit": "^11.0",
+        "mockery/mockery": "^1.6",
+        "laravel/pint": "^1.0"
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Kevjo\\LaravelCollab\\LaravelCollabServiceProvider"
+            ],
+            "aliases": {
+                "Collab": "Kevjo\\LaravelCollab\\Facades\\LaravelCollab"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
