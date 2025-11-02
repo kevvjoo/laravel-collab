@@ -104,7 +104,7 @@ class Collab
      * USAGE:
      * $count = Collab::releaseAllLocksForUser($userId);
      */
-    public function releaseAllLocksForUser(int $userId): int
+    public function releaseAllLocksForUser(int $userId): ?bool
     {
         return Lock::where('user_id', $userId)->delete();
     }
@@ -203,7 +203,7 @@ class Collab
      * 
      * Removes history older than configured retention period.
      */
-    public function cleanupOldHistory(): int
+    public function cleanupOldHistory(): ?bool
     {
         $retentionDays = config('collab.history.retention_days', 30);
         
