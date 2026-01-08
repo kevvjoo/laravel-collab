@@ -10,5 +10,5 @@ Please do NOT open a public issue.
 ## Supported Versions
 
 | Version | Supported          |
-| ------- | ------------------ |
+|---------|--------------------|
 | 1.x     | :white_check_mark: |
