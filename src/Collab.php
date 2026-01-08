@@ -106,7 +106,7 @@ class Collab
      */
     public function releaseAllLocksForUser(int $userId): ?bool
     {
-        return Lock::where('user_id', $userId)->delete();
+        return Lock::where('user_id', $userId)->delete() > 0;
     }
 
     /**
@@ -208,7 +208,7 @@ class Collab
         $retentionDays = config('collab.history.retention_days', 30);
         
         return LockHistory::where('created_at', '<', now()->subDays($retentionDays))
-            ->delete();
+            ->delete() > 0;
     }
 
     /**
