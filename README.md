@@ -21,7 +21,7 @@ Real-time collaborative editing for Laravel with intelligent locking and conflic
 You can install the package via composer:
 
 ```bash
-composer require yourvendor/laravel-collab
+composer require kevvjoo/laravel-collab
 ```
 
 Install the package:
