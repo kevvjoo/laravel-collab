@@ -2,6 +2,7 @@
 
 namespace Kevjo\LaravelCollab\Tests\Feature;
 
+use Kevjo\LaravelCollab\Models\Lock;
 use Kevjo\LaravelCollab\Tests\TestCase;
 use Kevjo\LaravelCollab\Exceptions\ModelLockedException;
 use Random\RandomException;
@@ -187,7 +188,14 @@ class ConcurrentEditingTest extends TestCase
         $user = $this->createUser();
         $post = $this->createPost();
 
-        $post->acquireLock($user, ['duration' => -10]); // Already expired
+        Lock::create([
+            'lockable_type' => get_class($post),
+            'lockable_id' => $post->id,
+            'user_id' => $user->id,
+            'locked_at' => now()->subMinutes(10),
+            'expires_at' => now()->subMinutes(5), // Expired 5 minutes ago
+            'lock_token' => Lock::generateToken(),
+        ]);
 
         $this->assertFalse($post->isLocked());
     }

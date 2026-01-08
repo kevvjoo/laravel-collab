@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kevjo\LaravelCollab\Tests\Feature;
 
+use Kevjo\LaravelCollab\Models\Lock;
 use Random\RandomException;
 use Kevjo\LaravelCollab\Tests\{TestCase, TestPost};
 use Kevjo\LaravelCollab\Models\LockHistory;
@@ -63,7 +64,15 @@ class LockHistoryTest extends TestCase
         $post = $this->createPost();
 
         // Create expired lock
-        $post->acquireLock($user, ['duration' => -10]);
+        Lock::create([
+            'lockable_type' => TestPost::class,
+            'lockable_id' => $post->id,
+            'user_id' => $user->id,
+            'locked_at' => now()->subMinutes(10),
+            'expires_at' => now()->subMinutes(5), // Expired 5 minutes ago
+            'lock_token' => Lock::generateToken(),
+            'session_id' => session()->getId(),
+        ]);
 
         // Trigger cleanup
         Collab::cleanupExpiredLocks();
