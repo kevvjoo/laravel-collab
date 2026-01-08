@@ -105,10 +105,12 @@ class Lock extends Model
     public function getDuration(): float
     {
         if ($this->isActive()) {
-            return now()->diffInSeconds($this->locked_at, false);
+            // How long has it been locked? now - locked_at
+            return $this->locked_at->diffInSeconds(now(), false);
         }
 
-        return $this->expires_at->diffInSeconds($this->locked_at, false);
+        // Total duration of the lock: expires_at - locked_at
+        return $this->locked_at->diffInSeconds($this->expires_at, false);
     }
 
     /**
@@ -120,7 +122,8 @@ class Lock extends Model
             return 0;
         }
 
-        return $this->expires_at->diffInSeconds(now(), false);
+        // Time remaining: expires_at - now
+        return now()->diffInSeconds($this->expires_at, false);
     }
 
     /**
