@@ -86,17 +86,23 @@ trait HasConcurrentEditing
     {
         // Get the user (use provided or current authenticated user)
         $user = $user ?? Auth::user();
-        
+
         if (!$user) {
             return LockResult::failed('No authenticated user provided');
         }
+
+        // VALIDATE DURATION FIRST - MOVE THIS TO THE TOP
+        $duration = $options['duration'] ?? config('collab.lock_duration.default');
+        $minDuration = config('collab.lock_duration.min', 60);
+        $maxDuration = config('collab.lock_duration.max', 86400);
+        $duration = max($minDuration, min($maxDuration, $duration));
 
         // Clean up any expired locks first
         $this->locks()->expired()->delete();
 
         // Check for existing active lock
         $existingLock = $this->getActiveLock();
-        
+
         // If someone else has the lock, return failed
         if ($existingLock && $existingLock->user_id !== $user->id) {
             return LockResult::failed(
@@ -105,28 +111,19 @@ trait HasConcurrentEditing
             );
         }
 
-        // If same user already has lock, extend it
-        $duration = $options['duration'] ?? config('collab.lock_duration.default');
-
+        // If same user already has lock, extend it (now using validated duration)
         if ($existingLock && $existingLock->user_id === $user->id) {
-
             $existingLock->update([
                 'expires_at' => now()->addSeconds($duration),
                 'metadata' => array_merge($existingLock->metadata ?? [], [
                     'extended_at' => now()->toIso8601String(),
                 ]),
             ]);
-            
+
             return LockResult::success($existingLock);
         }
 
-        // Create new lock
-
-        // Validate duration
-        $minDuration = config('collab.lock_duration.min', 60);
-        $maxDuration = config('collab.lock_duration.max', 86400);
-        $duration = max($minDuration, min($maxDuration, $duration));
-
+        // Create new lock (duration already validated)
         $lock = $this->locks()->create([
             'user_id' => $user->id,
             'session_id' => session()->getId(),
