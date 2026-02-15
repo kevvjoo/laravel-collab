@@ -175,12 +175,16 @@ class LockHistoryTest extends TestCase
         $post = $this->createPost();
 
         $post->acquireLock($user);
-        sleep(2); // Hold for 2 seconds
+
+        // Simulate 2 minutes passing instead of using sleep()
+        $this->travel(2)->minutes();
+
+        $post->clearLockCache();
         $post->releaseLock($user);
 
         $history = LockHistory::where('action', 'released')->first();
 
         $this->assertNotNull($history->duration);
-        $this->assertGreaterThanOrEqual(2, $history->duration);
+        $this->assertGreaterThanOrEqual(120, $history->duration);
     }
 }

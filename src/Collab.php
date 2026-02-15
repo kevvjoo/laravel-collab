@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kevjo\LaravelCollab;
 
 use Kevjo\LaravelCollab\Models\{Lock, LockHistory, LockSession};
+use Kevjo\LaravelCollab\Events\LockExpired;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -45,12 +46,17 @@ class Collab
      */
     public function cleanupExpiredLocks(): int
     {
-        // Get expired locks before deleting (for history)
         $expiredLocks = Lock::expired()->get();
 
-        // Create history entries for expired locks
-        if (config('collab.history.enabled', true)) {
-            foreach ($expiredLocks as $lock) {
+        if ($expiredLocks->isEmpty()) {
+            return 0;
+        }
+
+        // Create "expired" history entries, then delete each lock
+        // with skipHistoryOnDelete to prevent the Lock::deleting hook
+        // from creating duplicate "released" entries.
+        foreach ($expiredLocks as $lock) {
+            if (config('collab.history.enabled', true)) {
                 LockHistory::create([
                     'lockable_type' => $lock->lockable_type,
                     'lockable_id' => $lock->lockable_id,
@@ -63,10 +69,14 @@ class Collab
                     ],
                 ]);
             }
+
+            $lock->skipHistoryOnDelete = true;
+            $lock->delete();
+
+            event(new LockExpired($lock->lockable, $lock));
         }
 
-        // Delete expired locks
-        return Lock::expired()->delete();
+        return $expiredLocks->count();
     }
 
     /**
@@ -104,9 +114,9 @@ class Collab
      * USAGE:
      * $count = Collab::releaseAllLocksForUser($userId);
      */
-    public function releaseAllLocksForUser(int $userId): ?bool
+    public function releaseAllLocksForUser(int $userId): int
     {
-        return Lock::where('user_id', $userId)->delete() > 0;
+        return Lock::where('user_id', $userId)->delete();
     }
 
     /**
@@ -203,12 +213,12 @@ class Collab
      * 
      * Removes history older than configured retention period.
      */
-    public function cleanupOldHistory(): ?bool
+    public function cleanupOldHistory(): int
     {
         $retentionDays = config('collab.history.retention_days', 30);
-        
+
         return LockHistory::where('created_at', '<', now()->subDays($retentionDays))
-            ->delete() > 0;
+            ->delete();
     }
 
     /**

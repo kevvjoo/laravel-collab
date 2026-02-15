@@ -12,6 +12,13 @@ use Random\RandomException;
 class Lock extends Model
 {
     /**
+     * When true, the deleting hook will skip creating a history entry.
+     * Used when the caller already handles history creation manually
+     * (e.g., forceReleaseLock, cleanupExpiredLocks).
+     */
+    public bool $skipHistoryOnDelete = false;
+
+    /**
      * The attributes that are mass assignable.
      */
     protected $fillable = [
@@ -27,7 +34,6 @@ class Lock extends Model
         'ip_address',
         'user_agent',
         'metadata',
-        'extended_at',
     ];
 
     /**
@@ -179,7 +185,12 @@ class Lock extends Model
         parent::boot();
 
         // Automatically create history when lock is deleted
+        // Skipped when the caller already handles history (e.g., forceReleaseLock, cleanup)
         static::deleting(function (Lock $lock): void {
+            if ($lock->skipHistoryOnDelete) {
+                return;
+            }
+
             if (config('collab.history.enabled', true)) {
                 LockHistory::create([
                     'lockable_type' => $lock->lockable_type,
