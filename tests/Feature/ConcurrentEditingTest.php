@@ -53,8 +53,9 @@ class ConcurrentEditingTest extends TestCase
         $post->acquireLock($user, ['duration' => 600]);
         $firstExpiry = $post->lockExpiresAt();
 
-        sleep(1);
+        $this->travel(5)->seconds();
 
+        $post->clearLockCache();
         $post->acquireLock($user, ['duration' => 1800]);
         $secondExpiry = $post->lockExpiresAt();
 
@@ -141,7 +142,8 @@ class ConcurrentEditingTest extends TestCase
         $post->acquireLock($user, ['duration' => 600]);
         $originalExpiry = $post->lockExpiresAt();
 
-        sleep(1);
+        $this->travel(5)->seconds();
+        $post->clearLockCache();
 
         $extended = $post->extendLock(1800, $user);
 

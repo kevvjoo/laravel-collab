@@ -7,6 +7,7 @@ namespace Kevjo\LaravelCollab\Traits;
 use Kevjo\LaravelCollab\Models\{Lock, LockHistory};
 use Kevjo\LaravelCollab\Exceptions\ModelLockedException;
 use Kevjo\LaravelCollab\Support\LockResult;
+use Kevjo\LaravelCollab\Events\{LockAcquired, LockReleased, LockForceReleased, LockRequested as LockRequestedEvent};
 use Illuminate\Support\Facades\{Auth, Request};
 use Illuminate\Contracts\Auth\Authenticatable;
 use Carbon\Carbon;
@@ -14,6 +15,17 @@ use Random\RandomException;
 
 trait HasConcurrentEditing
 {
+    /**
+     * Cached active lock instance to avoid repeated queries within a request.
+     */
+    protected ?Lock $resolvedActiveLock = null;
+
+    /**
+     * Whether the active lock has been resolved (loaded) this request.
+     * Distinguishes "not loaded yet" from "loaded and is null".
+     */
+    protected bool $activeLockResolved = false;
+
     /**
      * Boot the trait.
      *
@@ -26,11 +38,13 @@ trait HasConcurrentEditing
         // BEFORE updating a model, check if it's locked
         static::updating(function (self $model): void {
             if (config('collab.prevent_update_if_locked', true)) {
+                $lock = $model->getActiveLock();
+
                 // If locked by someone else, throw exception
-                if ($model->isLockedByAnother()) {
-                    $lock = $model->getActiveLock();
+                if ($lock && $lock->user_id !== Auth::id()) {
                     throw new ModelLockedException(
-                        "This {$model->getTable()} is currently locked by {$lock->user->name}"
+                        "This {$model->getTable()} is currently locked by {$lock->user->name}",
+                        $lock
                     );
                 }
             }
@@ -51,7 +65,7 @@ trait HasConcurrentEditing
 
     /**
      * Get all locks for this model (relationship).
-     * 
+     *
      * This creates a polymorphic relationship.
      * One Post can have many Locks.
      */
@@ -91,14 +105,15 @@ trait HasConcurrentEditing
             return LockResult::failed('No authenticated user provided');
         }
 
-        // VALIDATE DURATION FIRST - MOVE THIS TO THE TOP
+        // Validate duration against configured min/max bounds
         $duration = $options['duration'] ?? config('collab.lock_duration.default');
         $minDuration = config('collab.lock_duration.min', 60);
         $maxDuration = config('collab.lock_duration.max', 86400);
         $duration = max($minDuration, min($maxDuration, $duration));
 
-        // Clean up any expired locks first
+        // Clean up any expired locks first (only once — getActiveLock uses cache after this)
         $this->locks()->expired()->delete();
+        $this->clearLockCache();
 
         // Check for existing active lock
         $existingLock = $this->getActiveLock();
@@ -111,7 +126,7 @@ trait HasConcurrentEditing
             );
         }
 
-        // If same user already has lock, extend it (now using validated duration)
+        // If same user already has lock, extend it
         if ($existingLock && $existingLock->user_id === $user->id) {
             $existingLock->update([
                 'expires_at' => now()->addSeconds($duration),
@@ -120,10 +135,12 @@ trait HasConcurrentEditing
                 ]),
             ]);
 
-            return LockResult::success($existingLock);
+            $this->clearLockCache();
+
+            return LockResult::success($existingLock->fresh());
         }
 
-        // Create new lock (duration already validated)
+        // Create new lock
         $lock = $this->locks()->create([
             'user_id' => $user->id,
             'session_id' => session()->getId(),
@@ -151,6 +168,10 @@ trait HasConcurrentEditing
             ]);
         }
 
+        $this->clearLockCache();
+
+        event(new LockAcquired($this, $lock, $user));
+
         return LockResult::success($lock);
     }
 
@@ -160,21 +181,32 @@ trait HasConcurrentEditing
     public function releaseLock(?Authenticatable $user = null): bool
     {
         $user = $user ?? Auth::user();
-        
+
+        // Must have an authenticated user to release a lock
+        if (!$user) {
+            return false;
+        }
+
         $lock = $this->getActiveLock();
-        
+
         // No active lock to release
         if (!$lock) {
             return false;
         }
 
-        // Only the owner can release (unless forced)
-        if ($user && $lock->user_id !== $user->id) {
+        // Only the owner can release (use forceReleaseLock() to bypass)
+        if ($lock->user_id !== $user->id) {
             return false;
         }
 
-        // Delete the lock (this triggers history creation in Lock model)
-        return $lock->delete();
+        // Delete the lock (this triggers history creation in Lock model's deleting hook)
+        $deleted = $lock->delete();
+
+        $this->clearLockCache();
+
+        event(new LockReleased($this, $user));
+
+        return $deleted;
     }
 
     /**
@@ -192,7 +224,7 @@ trait HasConcurrentEditing
     {
         $user = $user ?? Auth::user();
         $lock = $this->getActiveLock();
-        
+
         return $lock && $lock->user_id === $user?->id;
     }
 
@@ -203,25 +235,42 @@ trait HasConcurrentEditing
     {
         $user = $user ?? Auth::user();
         $lock = $this->getActiveLock();
-        
+
         return $lock && $lock->user_id !== $user?->id;
     }
 
     /**
      * Get the currently active lock (if any).
-     * 
-     * This automatically cleans up expired locks.
+     *
+     * Uses per-instance caching to avoid redundant queries.
+     * Call clearLockCache() after mutations to invalidate.
      */
     public function getActiveLock(): ?Lock
     {
-        // Clean up expired locks first
-        $this->locks()->expired()->delete();
-        
-        // Get the active lock
-        return $this->locks()
-            ->with('user')  // Eager load user to avoid N+1 queries
-            ->active()
-            ->first();
+        if (!$this->activeLockResolved) {
+            // Clean up expired locks, then fetch active
+            $this->locks()->expired()->delete();
+
+            $this->resolvedActiveLock = $this->locks()
+                ->with('user')
+                ->active()
+                ->first();
+
+            $this->activeLockResolved = true;
+        }
+
+        return $this->resolvedActiveLock;
+    }
+
+    /**
+     * Clear the cached active lock.
+     *
+     * Must be called after any operation that changes lock state.
+     */
+    public function clearLockCache(): void
+    {
+        $this->activeLockResolved = false;
+        $this->resolvedActiveLock = null;
     }
 
     /**
@@ -245,7 +294,7 @@ trait HasConcurrentEditing
     /**
      * Get how long the lock has been held (in seconds).
      */
-    public function lockDuration(): ?int
+    public function lockDuration(): ?float
     {
         $lock = $this->getActiveLock();
         return $lock?->getDuration();
@@ -267,7 +316,7 @@ trait HasConcurrentEditing
     {
         $user = $user ?? Auth::user();
         $lock = $this->getActiveLock();
-        
+
         // No lock to extend
         if (!$lock) {
             return false;
@@ -279,20 +328,24 @@ trait HasConcurrentEditing
         }
 
         $seconds = $seconds ?? config('collab.lock_duration.default');
-        
-        return $lock->extend($seconds);
+
+        $result = $lock->extend($seconds);
+
+        $this->clearLockCache();
+
+        return $result;
     }
 
     /**
      * Force release the lock (admin function).
-     * 
+     *
      * This bypasses ownership check.
      * Use carefully - typically only for admins.
      */
     public function forceReleaseLock(): bool
     {
         $lock = $this->getActiveLock();
-        
+
         if (!$lock) {
             return false;
         }
@@ -312,21 +365,28 @@ trait HasConcurrentEditing
             ]);
         }
 
-        return $lock->delete();
+        // Skip the Lock::deleting hook since we already created history above
+        $lock->skipHistoryOnDelete = true;
+        $deleted = $lock->delete();
+
+        $this->clearLockCache();
+
+        event(new LockForceReleased($this, $lock->user, Auth::user()));
+
+        return $deleted;
     }
 
     /**
      * Request lock from current owner.
-     * 
-     * This creates a notification/event that the current owner
-     * can respond to by releasing the lock.
+     *
+     * Fires an event that developers can listen to
+     * for sending notifications to the lock owner.
      */
     public function requestLock(Authenticatable $requester): bool
     {
         $lock = $this->getActiveLock();
-        
+
         if (!$lock) {
-            // No lock to request
             return false;
         }
 
@@ -335,10 +395,6 @@ trait HasConcurrentEditing
             return false;
         }
 
-        // TODO: Fire event/notification to lock owner
-        // event(new LockRequested($this, $requester, $lock->user));
-        
-        // For now, just log it in history
         if (config('collab.history.enabled', true)) {
             LockHistory::create([
                 'lockable_type' => get_class($this),
@@ -352,18 +408,20 @@ trait HasConcurrentEditing
             ]);
         }
 
+        event(new LockRequestedEvent($this, $requester, $lock->user));
+
         return true;
     }
 
     /**
      * Check if a specific field is locked.
-     * 
+     *
      * Used for field-level locking strategy.
      */
     public function isFieldLocked(string $field): bool
     {
         $lock = $this->getActiveLock();
-        
+
         if (!$lock) {
             return false;
         }
@@ -383,7 +441,7 @@ trait HasConcurrentEditing
     public function getLockedFields(): array
     {
         $lock = $this->getActiveLock();
-        
+
         if (!$lock) {
             return [];
         }
@@ -393,13 +451,13 @@ trait HasConcurrentEditing
 
     /**
      * Get lock information as array.
-     * 
+     *
      * Useful for API responses.
      */
     public function getLockInfo(): ?array
     {
         $lock = $this->getActiveLock();
-        
+
         if (!$lock) {
             return null;
         }

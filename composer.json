@@ -53,10 +53,10 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Kevjo\\LaravelCollab\\LaravelCollabServiceProvider"
+                "Kevjo\\LaravelCollab\\CollabServiceProvider"
             ],
             "aliases": {
-                "Collab": "Kevjo\\LaravelCollab\\Facades\\LaravelCollab"
+                "Collab": "Kevjo\\LaravelCollab\\Facades\\Collab"
             }
         }
     },

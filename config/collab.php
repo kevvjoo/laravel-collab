@@ -39,12 +39,9 @@ return [
     
     // Automatically release lock when model is updated
     'auto_release_after_update' => true,
-    
+
     // Prevent updates if model is locked by another user
     'prevent_update_if_locked' => true,
-    
-    // Automatically cleanup expired locks
-    'cleanup_expired_locks' => true,
 
     /*
     |--------------------------------------------------------------------------
