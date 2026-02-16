@@ -310,7 +310,6 @@ class CollabFacadeTest extends TestCase
 
         $this->assertIsArray($results);
         $this->assertArrayHasKey('expired_locks_deleted', $results);
-        $this->assertArrayHasKey('stale_sessions_deleted', $results);
         $this->assertArrayHasKey('old_history_deleted', $results);
     }
 }

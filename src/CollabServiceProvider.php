@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Kevjo\LaravelCollab;
 
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Kevjo\LaravelCollab\Console\Commands\{InstallCommand, CleanupCommand};
+use Kevjo\LaravelCollab\Http\Middleware\CheckLock;
 
 class CollabServiceProvider extends ServiceProvider
 {
@@ -67,12 +70,9 @@ class CollabServiceProvider extends ServiceProvider
             ]);
         }
 
-        // Load package routes (if you add API routes later)
-        // Uncomment when you add routes/api.php
-        // $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
-
-        // Load package views (if you add views later)
-        // $this->loadViewsFrom(__DIR__.'/../resources/views', 'collab');
+        // Register middleware alias so users can use ->middleware('collab.lock')
+        $router = $this->app->make(Router::class);
+        $router->aliasMiddleware('collab.lock', CheckLock::class);
     }
 
     /**

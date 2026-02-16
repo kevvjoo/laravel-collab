@@ -53,7 +53,6 @@ return [
     */
     'tables' => [
         'locks' => 'model_locks',
-        'sessions' => 'model_lock_sessions',
         'history' => 'model_lock_history',
     ],
 

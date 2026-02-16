@@ -19,8 +19,6 @@ use Illuminate\Support\Facades\Facade;
  * @method static \Illuminate\Support\Collection getHistoryFor(\Illuminate\Database\Eloquent\Model $model, int $limit = 50)
  * @method static \Illuminate\Support\Collection getUserHistory(int $userId, int $limit = 50)
  * @method static int cleanupOldHistory()
- * @method static \Illuminate\Support\Collection getStaleSessions()
- * @method static int cleanupStaleSessions()
  * @method static bool isModelLocked(string $modelType, int $modelId)
  * @method static string version()
  * @method static array config()

@@ -1,43 +1,37 @@
-# 🤝 Laravel Collab
+# Laravel Collab
 
-[![Latest Version](https://img.shields.io/packagist/v/yourvendor/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/yourvendor/laravel-collab)
-[![Tests](https://github.com/yourvendor/laravel-collab/workflows/Tests/badge.svg)](https://github.com/yourvendor/laravel-collab/actions)
-[![Total Downloads](https://img.shields.io/packagist/dt/yourvendor/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/yourvendor/laravel-collab)
-[![License](https://img.shields.io/packagist/l/yourvendor/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/yourvendor/laravel-collab)
+[![Latest Version](https://img.shields.io/packagist/v/kevjo/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/kevjo/laravel-collab)
+[![Tests](https://github.com/kevvjoo/laravel-collab/workflows/Tests/badge.svg)](https://github.com/kevvjoo/laravel-collab/actions)
+[![Total Downloads](https://img.shields.io/packagist/dt/kevjo/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/kevjo/laravel-collab)
+[![License](https://img.shields.io/packagist/l/kevjo/laravel-collab.svg?style=flat-square)](https://packagist.org/packages/kevjo/laravel-collab)
 
-Real-time collaborative editing for Laravel with intelligent locking and conflict resolution.
+Pessimistic locking for Laravel Eloquent models. Prevent multiple users from editing the same record simultaneously.
 
-## ✨ Features
+## Requirements
 
-- 🔒 **Multiple Locking Strategies** - Pessimistic, optimistic, and hybrid approaches
-- ⚡ **Simple API** - Just add a trait to your models
-- 🎯 **Zero Configuration** - Works out of the box with sensible defaults
-- 🛡️ **Conflict Prevention** - Automatically prevent concurrent editing conflicts
-- 📊 **Lock History** - Track who locked what and when
-- 🎨 **Extensible** - Easy to customize for your needs
+- PHP 8.5+
+- Laravel 12+
+- MySQL 8+ or PostgreSQL (required for row-level locking via `lockForUpdate()`)
 
-## 📦 Installation
+> **Note:** SQLite works for development/testing but does not support row-level locking. Race condition protection requires MySQL or PostgreSQL in production.
 
-You can install the package via composer:
+## Installation
 
 ```bash
-composer require kevvjoo/laravel-collab
+composer require kevjo/laravel-collab
 ```
 
-Install the package:
+Run the install command:
 
 ```bash
 php artisan collab:install
 ```
 
-This will:
-- Publish configuration file
-- Publish and run migrations
-- Set up the necessary database tables
+This publishes the config file, migrations, and runs the migrations.
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Add Trait to Your Model
+### 1. Add the Trait to Your Model
 
 ```php
 use Kevjo\LaravelCollab\Traits\HasConcurrentEditing;
@@ -48,158 +42,224 @@ class Post extends Model
 }
 ```
 
-### 2. Use in Your Controller
+### 2. Acquire and Release Locks
 
 ```php
-public function edit(Post $post)
-{
-    $result = $post->acquireLock(auth()->user());
-    
-    if ($result->isFailed()) {
-        return back()->with('error', 
-            "This post is being edited by {$result->getLockedBy()->name}"
-        );
-    }
-    
-    return view('posts.edit', compact('post'));
+// Acquire a lock
+$result = $post->acquireLock(auth()->user());
+
+if ($result->isFailed()) {
+    return back()->with('error',
+        "This post is being edited by {$result->getLockedBy()->name}"
+    );
 }
 
-public function update(Request $request, Post $post)
-{
-    $post->update($request->validated());
-    // Lock is automatically released after update
-    
-    return redirect()->route('posts.index');
-}
+// Release a lock
+$post->releaseLock(auth()->user());
+
+// Lock is also auto-released after model update (configurable)
+$post->update($request->validated());
 ```
 
 ### 3. Check Lock Status
 
 ```php
-// Check if locked
-if ($post->isLocked()) {
-    // Model is locked
-}
-
-// Check if locked by current user
-if ($post->isLockedByUser(auth()->user())) {
-    // Current user owns the lock
-}
-
-// Check if locked by another user
-if ($post->isLockedByAnother(auth()->user())) {
-    // Someone else has the lock
-}
-
-// Get lock owner
-$owner = $post->lockOwner();
-
-// Get lock expiration
-$expiresAt = $post->lockExpiresAt();
+$post->isLocked();                          // Is it locked by anyone?
+$post->isLockedByUser(auth()->user());      // Is it locked by me?
+$post->isLockedByAnother(auth()->user());   // Is it locked by someone else?
+$post->lockOwner();                         // Get the User who holds the lock
+$post->lockExpiresAt();                     // Carbon instance of expiration
+$post->lockRemainingTime();                 // Seconds until expiration
 ```
 
-## 📖 Documentation
+## Middleware
 
-### Configuration
+The package provides a `collab.lock` middleware that returns HTTP 423 (Locked) when a route-bound model is locked by another user.
 
-Publish the config file:
+```php
+// Specify which route parameter to check
+Route::put('/posts/{post}', [PostController::class, 'update'])
+    ->middleware('collab.lock:post');
+
+// Auto-detect all lockable models on the route
+Route::put('/posts/{post}', [PostController::class, 'update'])
+    ->middleware('collab.lock');
+```
+
+The middleware:
+- Returns **423 Locked** with lock info if the model is locked by another user
+- Passes through if the model is unlocked or locked by the current user
+- Skips the check entirely if no user is authenticated
+
+## Configuration
+
+Publish the config:
 
 ```bash
 php artisan vendor:publish --tag=collab-config
 ```
 
-Available options in `config/collab.php`:
-
 ```php
+// config/collab.php
 return [
-    // Default lock duration in seconds
+    'default_strategy' => 'pessimistic',
+
     'lock_duration' => [
-        'default' => 3600, // 1 hour
-        'min' => 60,
-        'max' => 86400,
+        'default' => 3600,  // 1 hour
+        'min'     => 60,    // 1 minute minimum
+        'max'     => 86400, // 24 hours maximum
     ],
-    
-    // Automatic behaviors
-    'auto_release_after_update' => true,
-    'prevent_update_if_locked' => true,
-    
-    // More options...
+
+    'auto_release_after_update' => true,  // Release lock when model is updated
+    'prevent_update_if_locked'  => true,  // Throw exception if locked by another
+
+    'tables' => [
+        'locks'   => 'model_locks',
+        'history' => 'model_lock_history',
+    ],
+
+    'history' => [
+        'enabled'        => true,
+        'retention_days' => 30,
+    ],
 ];
 ```
 
-### Advanced Usage
-
-#### Custom Lock Duration
+## Lock Options
 
 ```php
-$post->acquireLock(auth()->user(), [
-    'duration' => 600, // 10 minutes
-]);
+// Custom duration
+$post->acquireLock($user, ['duration' => 600]); // 10 minutes
+
+// Field-level locking
+$post->acquireLock($user, ['fields' => ['title', 'content']]);
+
+// Check field-level locks
+$post->isFieldLocked('title'); // true
+$post->getLockedFields();      // ['title', 'content']
+
+// Custom metadata
+$post->acquireLock($user, ['metadata' => ['reason' => 'bulk update']]);
 ```
 
-#### Extend Lock
+## Lock Management
 
 ```php
-// Extend lock by default duration
-$post->extendLock();
+// Extend a lock
+$post->extendLock(1800, $user); // 30 more minutes
 
-// Extend by specific duration
-$post->extendLock(300); // 5 minutes
-```
-
-#### Force Release Lock
-
-```php
-// Admin can force release any lock
+// Force release (admin use)
 $post->forceReleaseLock();
+
+// Request lock from owner (fires LockRequested event)
+$post->requestLock($requester);
+
+// Get structured lock info for API responses
+$post->getLockInfo();
+// Returns: ['is_locked' => true, 'locked_by' => [...], 'expires_at' => '...', ...]
+
+$post->getLockStatus($user);
+// Returns: ['is_locked' => true, 'can_edit' => false, 'is_owner' => false, ...]
 ```
 
-#### Manual Lock Release
+## Facade
+
+The `Collab` facade provides system-wide lock management:
 
 ```php
-$post->releaseLock(auth()->user());
+use Kevjo\LaravelCollab\Facades\Collab;
+
+// Query locks
+Collab::activeLocks();
+Collab::expiredLocks();
+Collab::getLocksFor($post);
+Collab::getActiveLockFor($post);
+Collab::isModelLocked(Post::class, 1);
+Collab::getLocksForModelType(Post::class);
+
+// Bulk operations
+Collab::releaseAllLocksForUser($userId);
+Collab::releaseAllLocks();
+
+// Cleanup
+Collab::cleanupExpiredLocks();
+Collab::cleanupOldHistory();
+Collab::runCleanup();
+
+// History
+Collab::getHistoryFor($post);
+Collab::getUserHistory($userId);
+
+// Stats
+Collab::getStatistics();
 ```
 
-### Artisan Commands
+## Events
+
+All events are in the `Kevjo\LaravelCollab\Events` namespace:
+
+| Event | Fired When | Properties |
+|-------|-----------|------------|
+| `LockAcquired` | Lock is successfully acquired | `$model`, `$lock`, `$user` |
+| `LockReleased` | Lock is released by owner | `$model`, `$user` |
+| `LockForceReleased` | Lock is force-released (admin) | `$model`, `$lockOwner`, `$releasedBy` |
+| `LockRequested` | User requests lock from owner | `$model`, `$requester`, `$lockOwner` |
+| `LockExpired` | Expired lock is cleaned up | `$model`, `$lock` |
+
+Listen to events in your `EventServiceProvider` or with closures:
+
+```php
+use Kevjo\LaravelCollab\Events\LockRequested;
+
+Event::listen(LockRequested::class, function (LockRequested $event) {
+    $event->lockOwner->notify(new LockRequestNotification(
+        $event->requester,
+        $event->model
+    ));
+});
+```
+
+## Artisan Commands
 
 ```bash
-# Cleanup expired locks
+# Clean up expired locks
 php artisan collab:cleanup
 
-# Install package
+# Clean up expired locks + old history
+php artisan collab:cleanup --all
+
+# Preview what would be deleted
+php artisan collab:cleanup --dry-run
+
+# Install the package
 php artisan collab:install
 ```
 
-### Events
+Add to your scheduler for automatic cleanup:
 
-The package fires several events you can listen to:
+```php
+// app/Console/Kernel.php
+$schedule->command('collab:cleanup')->hourly();
+```
 
-- `LockAcquired` - When a lock is acquired
-- `LockReleased` - When a lock is released
-- `LockExpired` - When a lock expires
+## Automatic Behaviors
 
-## 🧪 Testing
+The trait hooks into Eloquent model events:
+
+- **Before update:** If `prevent_update_if_locked` is `true` and the model is locked by another user, a `ModelLockedException` (HTTP 423) is thrown.
+- **After update:** If `auto_release_after_update` is `true`, the lock is automatically released.
+- **On delete:** All locks on the model are released with history entries created.
+
+## Testing
 
 ```bash
 composer test
 ```
 
-## 📝 Changelog
-
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
-
-## 🤝 Contributing
-
-Please see [CONTRIBUTING](CONTRIBUTING.md) for details.
-
-## 🔒 Security
-
-If you discover any security related issues, please email algorythmx.id@proton.me instead of using the issue tracker.
-
-## 👥 Credits
+## Credits
 
 - [Kevin Jonathan](https://github.com/kevvjoo)
 
-## 📄 License
+## License
 
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.

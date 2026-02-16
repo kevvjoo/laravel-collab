@@ -170,7 +170,6 @@ class CommandsTest extends TestCase
                 ['Category', 'Count'],
                 [
                     ['Expired locks', 1],
-                    ['Stale sessions', 0],
                 ]
             )
             ->assertExitCode(0);
@@ -180,7 +179,6 @@ class CommandsTest extends TestCase
     {
         $this->artisan('collab:cleanup')
             ->expectsOutput('   ✓ Deleted: 0 expired locks')
-            ->expectsOutput('   ✓ Deleted: 0 stale sessions')
             ->assertExitCode(0);
     }
 
@@ -216,7 +214,6 @@ class CommandsTest extends TestCase
         $this->artisan('collab:cleanup')
             ->expectsOutput('🧹 Starting Laravel Collab cleanup...')
             ->expectsOutput('🔒 Cleaning up expired locks...')
-            ->expectsOutput('👥 Cleaning up stale sessions...')
             ->assertExitCode(0);
     }
 }

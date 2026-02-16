@@ -19,7 +19,7 @@ class CleanupCommand extends Command
     /**
      * The console command description.
      */
-    protected $description = 'Cleanup expired locks, stale sessions, and old history';
+    protected $description = 'Cleanup expired locks and old history';
 
     /**
      * Execute the console command.
@@ -42,18 +42,6 @@ class CleanupCommand extends Command
             $this->line("   ✓ Deleted: {$count} expired locks");
         }
         $results['expired_locks'] = $count;
-        $this->newLine();
-
-        // Cleanup stale sessions
-        $this->info('👥 Cleaning up stale sessions...');
-        if ($dryRun) {
-            $count = Collab::getStaleSessions()->count();
-            $this->line("   Would delete: {$count} stale sessions");
-        } else {
-            $count = Collab::cleanupStaleSessions();
-            $this->line("   ✓ Deleted: {$count} stale sessions");
-        }
-        $results['stale_sessions'] = $count;
         $this->newLine();
 
         // Cleanup old history (if --all flag is used)
