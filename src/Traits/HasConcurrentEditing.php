@@ -57,9 +57,10 @@ trait HasConcurrentEditing
             }
         });
 
-        // When model is deleted, release any locks
+        // When model is deleted, release any locks individually
+        // so that each Lock's deleting hook fires and history entries are created
         static::deleting(function (self $model): void {
-            $model->locks()->delete();
+            $model->locks()->get()->each(fn (Lock $lock) => $lock->delete());
         });
     }
 

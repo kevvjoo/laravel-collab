@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Kevjo\LaravelCollab;
 
-use Kevjo\LaravelCollab\Models\{Lock, LockHistory, LockSession};
+use Kevjo\LaravelCollab\Models\{Lock, LockHistory};
 use Kevjo\LaravelCollab\Events\LockExpired;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -243,22 +243,6 @@ class Collab
     }
 
     /**
-     * Get stale sessions (no recent heartbeat).
-     */
-    public function getStaleSessions(): Collection
-    {
-        return LockSession::stale()->get();
-    }
-
-    /**
-     * Cleanup stale sessions.
-     */
-    public function cleanupStaleSessions(): int
-    {
-        return LockSession::stale()->delete();
-    }
-
-    /**
      * Check if a model is locked.
      * 
      * Helper method for quick checks without loading the model.
@@ -276,7 +260,7 @@ class Collab
      */
     public function version(): string
     {
-        return '0.1.0';
+        return '0.2remove l.0';
     }
 
     /**
@@ -296,7 +280,6 @@ class Collab
     {
         return [
             'expired_locks_deleted' => $this->cleanupExpiredLocks(),
-            'stale_sessions_deleted' => $this->cleanupStaleSessions(),
             'old_history_deleted' => $this->cleanupOldHistory(),
         ];
     }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Kevjo\LaravelCollab\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\{MorphTo, BelongsTo, HasMany};
+use Illuminate\Database\Eloquent\Relations\{MorphTo, BelongsTo};
 use Carbon\Carbon;
 use Random\RandomException;
 
@@ -77,14 +77,6 @@ class Lock extends Model
         return $this->belongsTo(
             config('auth.providers.users.model', 'App\Models\User')
         );
-    }
-
-    /**
-     * Get active sessions for this lock.
-     */
-    public function sessions(): HasMany
-    {
-        return $this->hasMany(LockSession::class);
     }
 
     /**
