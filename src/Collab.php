@@ -260,7 +260,7 @@ class Collab
      */
     public function version(): string
     {
-        return '0.2remove l.0';
+        return '0.2.0';
     }
 
     /**
