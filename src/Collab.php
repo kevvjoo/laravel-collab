@@ -46,7 +46,7 @@ class Collab
      */
     public function cleanupExpiredLocks(): int
     {
-        $expiredLocks = Lock::expired()->get();
+        $expiredLocks = Lock::expired()->with('lockable')->get();
 
         if ($expiredLocks->isEmpty()) {
             return 0;
@@ -108,25 +108,37 @@ class Collab
 
     /**
      * Release all locks for a specific user.
-     * 
+     *
      * Useful when user logs out or is deactivated.
-     * 
+     * Iterates individually so Eloquent's deleting hook fires
+     * and history entries are created for each lock.
+     *
      * USAGE:
      * $count = Collab::releaseAllLocksForUser($userId);
      */
     public function releaseAllLocksForUser(int $userId): int
     {
-        return Lock::where('user_id', $userId)->delete();
+        $locks = Lock::where('user_id', $userId)->get();
+
+        $locks->each(fn (Lock $lock) => $lock->delete());
+
+        return $locks->count();
     }
 
     /**
      * Force release all locks (admin function).
-     * 
+     *
      * CAUTION: This releases ALL locks in the system!
+     * Iterates individually so Eloquent's deleting hook fires
+     * and history entries are created for each lock.
      */
     public function releaseAllLocks(): int
     {
-        return Lock::query()->delete();
+        $locks = Lock::all();
+
+        $locks->each(fn (Lock $lock) => $lock->delete());
+
+        return $locks->count();
     }
 
     /**
@@ -154,6 +166,21 @@ class Collab
      */
     public function getStatistics(): array
     {
+        $userModel = config('auth.providers.users.model', 'App\Models\User');
+
+        // Get top users with lock counts via a grouped query,
+        // then resolve user names separately to avoid eager-loading
+        // conflicts with selectRaw (which drops the `id` column).
+        $topUserRows = Lock::active()
+            ->selectRaw('user_id, count(*) as lock_count')
+            ->groupBy('user_id')
+            ->orderByDesc('lock_count')
+            ->limit(10)
+            ->get();
+
+        $userIds = $topUserRows->pluck('user_id')->all();
+        $users = $userModel::whereIn('id', $userIds)->pluck('name', 'id');
+
         return [
             'total_active_locks' => Lock::active()->count(),
             'total_expired_locks' => Lock::expired()->count(),
@@ -167,17 +194,11 @@ class Collab
                 ->groupBy('lockable_type')
                 ->pluck('count', 'lockable_type')
                 ->toArray(),
-            'most_active_users' => Lock::active()
-                ->selectRaw('user_id, count(*) as count')
-                ->groupBy('user_id')
-                ->orderByDesc('count')
-                ->limit(10)
-                ->with('user')
-                ->get()
-                ->map(fn($lock) => [
-                    'user_id' => $lock->user_id,
-                    'user_name' => $lock->user->name ?? 'Unknown',
-                    'lock_count' => $lock->count,
+            'most_active_users' => $topUserRows
+                ->map(fn ($row) => [
+                    'user_id' => $row->user_id,
+                    'user_name' => $users[$row->user_id] ?? 'Unknown',
+                    'lock_count' => $row->lock_count,
                 ])
                 ->toArray(),
         ];

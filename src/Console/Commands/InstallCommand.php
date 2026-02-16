@@ -69,7 +69,7 @@ class InstallCommand extends Command
         $this->info('📋 Next Steps:');
         $this->newLine();
         $this->line('  1. Add the trait to your models:');
-        $this->line('     use YourVendor\Collab\Traits\HasConcurrentEditing;');
+        $this->line('     use Kevjo\LaravelCollab\Traits\HasConcurrentEditing;');
         $this->newLine();
         $this->line('     class Post extends Model {');
         $this->line('         use HasConcurrentEditing;');
@@ -84,7 +84,7 @@ class InstallCommand extends Command
         $this->line('  4. Add to task scheduler (optional):');
         $this->line('     $schedule->command(\'collab:cleanup\')->hourly();');
         $this->newLine();
-        $this->line('📖 Documentation: https://github.com/yourvendor/laravel-collab');
+        $this->line('📖 Documentation: https://github.com/kevjo/laravel-collab');
         $this->newLine();
 
         return self::SUCCESS;
