@@ -276,7 +276,7 @@ class Collab
      */
     public function version(): string
     {
-        return '1.0.0';
+        return '0.1.0';
     }
 
     /**
