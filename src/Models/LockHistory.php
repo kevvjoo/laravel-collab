@@ -69,17 +69,4 @@ class LockHistory extends Model
         return $query->where('action', $action);
     }
 
-    /**
-     * Boot method - automatic cleanup of old records.
-     */
-    protected static function boot(): void
-    {
-        parent::boot();
-
-        // Auto-delete old history entries
-        if (config('collab.history.retention_days')) {
-            // This would typically be scheduled, but here for demonstration
-            // In practice, use a scheduled command
-        }
-    }
 }

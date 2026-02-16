@@ -8,7 +8,7 @@ use Kevjo\LaravelCollab\Models\{Lock, LockHistory};
 use Kevjo\LaravelCollab\Exceptions\ModelLockedException;
 use Kevjo\LaravelCollab\Support\LockResult;
 use Kevjo\LaravelCollab\Events\{LockAcquired, LockReleased, LockForceReleased, LockRequested as LockRequestedEvent};
-use Illuminate\Support\Facades\{Auth, Request};
+use Illuminate\Support\Facades\{Auth, DB, Request};
 use Illuminate\Contracts\Auth\Authenticatable;
 use Carbon\Carbon;
 use Random\RandomException;
@@ -85,11 +85,8 @@ trait HasConcurrentEditing
     /**
      * Acquire a lock on this model.
      *
-     * HOW IT WORKS:
-     * 1. Check if there's an existing active lock
-     * 2. If locked by someone else, return failed result
-     * 3. If locked by same user, extend the lock
-     * 4. If not locked, create new lock
+     * Uses a database transaction with row-level locking to prevent
+     * race conditions where two users could acquire a lock simultaneously.
      *
      * @param Authenticatable|null $user
      * @param array{duration?: int, strategy?: string, fields?: array, metadata?: array} $options
@@ -98,7 +95,6 @@ trait HasConcurrentEditing
      */
     public function acquireLock(?Authenticatable $user = null, array $options = []): LockResult
     {
-        // Get the user (use provided or current authenticated user)
         $user = $user ?? Auth::user();
 
         if (!$user) {
@@ -111,68 +107,79 @@ trait HasConcurrentEditing
         $maxDuration = config('collab.lock_duration.max', 86400);
         $duration = max($minDuration, min($maxDuration, $duration));
 
-        // Clean up any expired locks first (only once — getActiveLock uses cache after this)
-        $this->locks()->expired()->delete();
-        $this->clearLockCache();
+        // Wrap in a transaction with row-level locking to prevent race conditions
+        return DB::transaction(function () use ($user, $duration, $options) {
+            // Clean up expired locks
+            $this->locks()->expired()->delete();
+            $this->clearLockCache();
 
-        // Check for existing active lock
-        $existingLock = $this->getActiveLock();
+            // Check for existing active lock WITH a row-level lock
+            // This prevents two concurrent requests from both seeing "no lock"
+            $existingLock = $this->locks()
+                ->lockForUpdate()
+                ->with('user')
+                ->active()
+                ->first();
 
-        // If someone else has the lock, return failed
-        if ($existingLock && $existingLock->user_id !== $user->id) {
-            return LockResult::failed(
-                'Model is already locked by another user',
-                $existingLock
-            );
-        }
+            // If someone else has the lock, return failed
+            if ($existingLock && $existingLock->user_id !== $user->id) {
+                return LockResult::failed(
+                    'Model is already locked by another user',
+                    $existingLock
+                );
+            }
 
-        // If same user already has lock, extend it
-        if ($existingLock && $existingLock->user_id === $user->id) {
-            $existingLock->update([
+            // If same user already has lock, extend it
+            if ($existingLock && $existingLock->user_id === $user->id) {
+                $existingLock->update([
+                    'expires_at' => now()->addSeconds($duration),
+                    'metadata' => array_merge($existingLock->metadata ?? [], [
+                        'extended_at' => now()->toIso8601String(),
+                    ]),
+                ]);
+
+                $this->clearLockCache();
+
+                return LockResult::success($existingLock->fresh());
+            }
+
+            // Resolve session ID safely (may not exist in queue/CLI contexts)
+            $sessionId = rescue(fn () => session()->getId(), null, false);
+
+            // Create new lock
+            $lock = $this->locks()->create([
+                'user_id' => $user->id,
+                'session_id' => $sessionId,
+                'strategy' => $options['strategy'] ?? config('collab.default_strategy'),
+                'locked_fields' => $options['fields'] ?? null,
+                'locked_at' => now(),
                 'expires_at' => now()->addSeconds($duration),
-                'metadata' => array_merge($existingLock->metadata ?? [], [
-                    'extended_at' => now()->toIso8601String(),
-                ]),
+                'lock_token' => Lock::generateToken(),
+                'ip_address' => Request::ip(),
+                'user_agent' => Request::userAgent(),
+                'metadata' => $options['metadata'] ?? null,
             ]);
+
+            // Create history entry
+            if (config('collab.history.enabled', true)) {
+                LockHistory::create([
+                    'lockable_type' => get_class($this),
+                    'lockable_id' => $this->id,
+                    'user_id' => $user->id,
+                    'action' => 'acquired',
+                    'metadata' => [
+                        'lock_token' => $lock->lock_token,
+                        'duration' => $duration,
+                    ],
+                ]);
+            }
 
             $this->clearLockCache();
 
-            return LockResult::success($existingLock->fresh());
-        }
+            event(new LockAcquired($this, $lock, $user));
 
-        // Create new lock
-        $lock = $this->locks()->create([
-            'user_id' => $user->id,
-            'session_id' => session()->getId(),
-            'strategy' => $options['strategy'] ?? config('collab.default_strategy'),
-            'locked_fields' => $options['fields'] ?? null,
-            'locked_at' => now(),
-            'expires_at' => now()->addSeconds($duration),
-            'lock_token' => Lock::generateToken(),
-            'ip_address' => Request::ip(),
-            'user_agent' => Request::userAgent(),
-            'metadata' => $options['metadata'] ?? null,
-        ]);
-
-        // Create history entry
-        if (config('collab.history.enabled', true)) {
-            LockHistory::create([
-                'lockable_type' => get_class($this),
-                'lockable_id' => $this->id,
-                'user_id' => $user->id,
-                'action' => 'acquired',
-                'metadata' => [
-                    'lock_token' => $lock->lock_token,
-                    'duration' => $duration,
-                ],
-            ]);
-        }
-
-        $this->clearLockCache();
-
-        event(new LockAcquired($this, $lock, $user));
-
-        return LockResult::success($lock);
+            return LockResult::success($lock);
+        });
     }
 
     /**
@@ -242,15 +249,16 @@ trait HasConcurrentEditing
     /**
      * Get the currently active lock (if any).
      *
+     * This is a read-only query — it only fetches active (non-expired) locks
+     * without deleting expired ones. Cleanup of expired locks is handled by
+     * acquireLock() and the collab:cleanup command.
+     *
      * Uses per-instance caching to avoid redundant queries.
      * Call clearLockCache() after mutations to invalidate.
      */
     public function getActiveLock(): ?Lock
     {
         if (!$this->activeLockResolved) {
-            // Clean up expired locks, then fetch active
-            $this->locks()->expired()->delete();
-
             $this->resolvedActiveLock = $this->locks()
                 ->with('user')
                 ->active()

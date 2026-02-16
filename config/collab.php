@@ -45,20 +45,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Broadcasting Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Real-time notifications (future feature)
-    |
-    */
-    'broadcasting' => [
-        'enabled' => env('COLLAB_BROADCAST', false),
-        'driver' => env('BROADCAST_DRIVER', 'pusher'),
-        'presence_enabled' => false,
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Database Table Names
     |--------------------------------------------------------------------------
     |
@@ -82,18 +68,5 @@ return [
     'history' => [
         'enabled' => true,
         'retention_days' => 30, // Auto-delete old history
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Heartbeat Settings
-    |--------------------------------------------------------------------------
-    |
-    | For keeping locks alive during active editing
-    |
-    */
-    'heartbeat' => [
-        'interval' => 30,  // Send heartbeat every 30 seconds
-        'timeout' => 120,  // Consider inactive after 2 minutes
     ],
 ];
